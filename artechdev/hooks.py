@@ -5,6 +5,28 @@ app_description = "Desarrollo"
 app_email = "fdiz@artech-consulting.com"
 app_license = "mit"
 
+# apps/artechdev/artechdev/hooks.py 
+# 
+
+doc_events = {
+    "Employee": {
+        "after_insert": "artechdev.api.audit_salary_backlog",
+        "on_update": "artechdev.api.audit_salary_backlog"
+    },
+    "Salary Structure": {
+        "after_insert": "artechdev.api.audit_salary_backlog",
+        "on_update": "artechdev.api.audit_salary_backlog"
+    },
+    "Salary Structure Assignment": {
+        "after_insert": "artechdev.api.audit_salary_backlog",
+        "on_update": "artechdev.api.audit_salary_backlog"
+    },
+    "Salary Component": {
+        "after_insert": "artechdev.api.audit_salary_backlog",
+        "on_update": "artechdev.api.audit_salary_backlog"
+    }
+}
+
 # Apps
 # ------------------
 
