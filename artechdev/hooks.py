@@ -1,7 +1,7 @@
 app_name = "artechdev"
 app_title = "Artechdev"
 app_publisher = "Artech"
-app_description = "Desarrollo"
+app_description = "Desarrollos"
 app_email = "fdiz@artech-consulting.com"
 app_license = "mit"
 
