@@ -1,81 +1,58 @@
-# apps/artechdev/artechdev/api.py
+# apps/artechcustom/artechcustom/api.py
 import frappe
-from frappe.utils import add_days, today, now_datetime
+from frappe.utils import now_datetime
 
 def audit_salary_backlog(doc, method=None):
     """
-    Guarda una versión completa del DocType en tablas Padre-Hijo
-    cuando detecta cambios en cualquier campo de valor.
+    Guarda una versión con fecha y hora exacta del documento.
     """
-    # Campos que no queremos trackear en la tabla hija
-    ignored_fields = {
-        "modified", "modified_by", "creation", "owner", "docstatus", 
-        "idx", "name", "naming_series", "lft", "rgt"
-    }
+    ignored = {"modified", "modified_by", "creation", "owner", "docstatus", "idx", "name", "naming_series"}
+    ahora = now_datetime()
 
-    fecha_hoy = today()
-
-    # 1. Obtener los valores actuales del documento
-    current_values = {}
+    # 1. Extraer valores actuales
+    current_snapshot = {}
     for df in doc.meta.fields:
-        if df.fieldname not in ignored_fields and df.fieldtype not in ["Table", "Section Break", "Column Break", "HTML", "Button"]:
+        if df.fieldname not in ignored and df.fieldtype not in ["Table", "Section Break", "Column Break", "HTML"]:
             val = doc.get(df.fieldname)
-            current_values[df.fieldname] = str(val) if val is not None else ""
+            current_snapshot[df.fieldname] = str(val) if val is not None else ""
 
-    # 2. Buscar la última versión vigente en el historial
-    last_history = frappe.get_all("Salary Version History", 
+    # 2. Buscar la versión vigente (sin fecha_hasta o con fecha muy lejana)
+    # Usamos una fecha lejana para identificar el registro 'actual'
+    last_version = frappe.get_all("Salary Version History", 
         filters={
             "ref_name": doc.name, 
-            "ref_doctype": doc.doctype,
-            "fecha_hasta": "2099-12-31"
+            "ref_doctype": doc.doctype, 
+            "fecha_hasta": [">", "2099-01-01 00:00:00"]
         },
-        fields=["name"], 
-        limit=1
-    )
+        fields=["name"], limit=1)
 
-    if not last_history:
-        # ESCENARIO: Registro nuevo -> Grabamos la primera foto
-        create_version_record(doc, current_values, fecha_hoy)
+    if not last_version:
+        # Primera vez que se registra este documento
+        create_new_version(doc, current_snapshot, ahora)
     else:
-        # ESCENARIO: Existe historial -> Comparamos contra los hijos del registro vigente
+        # Comparar con la versión anterior
         last_details = {d.field_name: d.value for d in frappe.get_all("Salary Version Detail", 
-                        filters={"parent": last_history[0].name}, 
-                        fields=["field_name", "value"])}
+                        filters={"parent": last_version[0].name}, fields=["field_name", "value"])}
         
-        # Verificar si hay alguna diferencia entre la foto vieja y la nueva
-        has_changes = False
-        for field, value in current_values.items():
-            if str(value) != str(last_details.get(field, "")):
-                has_changes = True
-                break
+        hay_cambios = any(current_snapshot.get(f) != last_details.get(f) for f in current_snapshot)
         
-        if has_changes:
-            # Cerramos la vigencia del registro anterior hoy
-            frappe.db.set_value("Salary Version History", last_history[0].name, "fecha_hasta", fecha_hoy)
-            # Creamos la nueva foto vigente desde mañana
-            create_version_record(doc, current_values, add_days(fecha_hoy, 1))
+        if hay_cambios:
+            # Sincronismo exacto: cerramos el viejo ahora y abrimos el nuevo ahora
+            frappe.db.set_value("Salary Version History", last_version[0].name, "fecha_hasta", ahora)
+            create_new_version(doc, current_snapshot, ahora)
 
-def create_version_record(doc, values_dict, f_desde):
-    """Inserta el registro Padre con sus filas Hijas"""
+def create_new_version(doc, values, timestamp):
+    """Inserta el registro padre y sus hijos con Datetime"""
+    emp = doc.get("employee") or (doc.name if doc.doctype == "Employee" else None)
     
-    # Intentamos obtener el empleado (para filtrar fácil después)666
-    employee = doc.get("employee")
-    if not employee and doc.doctype == "Employee":
-        employee = doc.name
- 
-    new_version = frappe.get_doc({
+    new_v = frappe.get_doc({
         "doctype": "Salary Version History",
         "ref_doctype": doc.doctype,
         "ref_name": doc.name,
-        "employee": employee,
-        "fecha_desde": f_desde,
-        "fecha_hasta": "9999-12-31",
-        "details": [
-            {"field_name": field, "value": val} 
-            for field, val in values_dict.items()
-        ]
+        "employee": emp,
+        "fecha_desde": timestamp,
+        "fecha_hasta": "2099-12-31 23:59:59",
+        "details": [{"field_name": k, "value": v} for k, v in values.items()]
     })
-    
-    # El naming se construye: {ref_doctype}-{ref_name}-{fecha_desde}
-    new_version.insert(ignore_permissions=True, ignore_if_duplicate=True)
+    new_v.insert(ignore_permissions=True)
     frappe.db.commit()
